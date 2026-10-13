@@ -7,6 +7,9 @@ Version optimisée mémoire : traitement par tuiles de 2048x2048.
 
 import json
 import math
+import os
+import sys
+import glob
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime, timezone
@@ -20,7 +23,25 @@ from scipy.spatial import cKDTree
 # ============================================================
 # CONFIGURATION
 # ============================================================
-SAFE_DIR = Path('/home/gleaphe/Desktop/NAVY/sar_data/S1D_IW_GRDH_1SDV_20261008T014642_20261008T014707_004917_009431_8659_COG.SAFE')
+# Scène à traiter : argument CLI > variable d'env GHOST_SCENE_DIR > scène la plus récente dans sar_data/
+if len(sys.argv) > 1:
+    SAFE_DIR = Path(sys.argv[1])
+elif os.environ.get('GHOST_SCENE_DIR'):
+    SAFE_DIR = Path(os.environ['GHOST_SCENE_DIR'])
+else:
+    candidates = sorted(
+        glob.glob('/home/gleaphe/Desktop/NAVY/sar_data/*.SAFE'),
+        key=os.path.getmtime,
+        reverse=True
+    )
+    if not candidates:
+        raise SystemExit("Aucune scène SAR dans sar_data/")
+    SAFE_DIR = Path(candidates[0])
+
+if not SAFE_DIR.exists():
+    raise SystemExit(f"Scène introuvable : {SAFE_DIR}")
+
+print(f"[ghost_pipeline] Scène : {SAFE_DIR.name}")
 
 REUNION_LAT = -21.12
 REUNION_LON = 55.53
@@ -150,7 +171,6 @@ def cfar_detect_tile(tile):
             'ratio': float(img[y, x] / max(mean_local[y, x], 1))
         })
 
-    # Libère explicitement la RAM
     del img, mean_local, sq_mean, var_local, std_local, threshold, mask
     return detections
 
@@ -178,13 +198,12 @@ def cfar_detect_tiled(tiff_path, x0, y0, w, h, tile_size=TILE_SIZE):
 
                 tile_detections = cfar_detect_tile(tile)
 
-                # Recale les coordonnées dans la fenêtre globale
                 for d in tile_detections:
                     d['x'] += tx * tile_size
                     d['y'] += ty * tile_size
 
                 all_detections.extend(tile_detections)
-                del tile  # Libère la RAM
+                del tile
 
     return all_detections
 
