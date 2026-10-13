@@ -13,7 +13,7 @@ Détection de navires par imagerie satellite SAR • Séismes temps réel • Ca
 [![GitHub stars](https://img.shields.io/github/stars/gunout/radar-maritime-reunion?style=social)](https://github.com/gunout/radar-maritime-reunion/stargazers)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
-[Fonctionnalités](#-fonctionnalités) • [Architecture](#-architecture) • [Installation](#-installation) • [Utilisation](#-utilisation) • [Limitations](#-limitations)
+[Fonctionnalités](#-fonctionnalités) • [Architecture](#-architecture) • [Installation](#-installation) • [Utilisation](#-utilisation) • [Automatisation](#-automatisation-cron) • [Limitations](#️-limitations)
 
 </div>
 
@@ -55,6 +55,12 @@ Il détecte notamment les **« ghost boats »** — des navires qui naviguent sa
 - **Exports** CSV et PDF
 - **Filtres géographiques** (rectangle dessinable)
 
+### ⏰ Automatisation
+- **Cron job** qui vérifie toutes les 30 min les nouvelles scènes Sentinel-1
+- Téléchargement et traitement automatiques
+- Rechargement à chaud du serveur Node.js
+- Nettoyage automatique des vieilles scènes
+
 ---
 
 ## 🏗️ Architecture
@@ -93,6 +99,12 @@ Il détecte notamment les **« ghost boats »** — des navires qui naviguent sa
                                           ┌──────────────┐
                                           │ Copernicus   │
                                           │ Sentinel-1   │
+                                          └──────────────┘
+                                                  ▲
+                                                  │
+                                          ┌──────────────┐
+                                          │  CRON JOB    │
+                                          │  (30 min)    │
                                           └──────────────┘
 ```
 
@@ -176,9 +188,7 @@ Le serveur :
 - Se connecte à AISStream
 - Charge `ghost_boats.json` au démarrage
 
-### Pipeline Ghost Boats
-
-Le pipeline SAR est **manuel** (à cause du temps de traitement et du quota CDSE).
+### Pipeline Ghost Boats manuel
 
 #### Étape 1 — Trouver une scène Sentinel-1
 
@@ -186,11 +196,7 @@ Le pipeline SAR est **manuel** (à cause du temps de traitement et du quota CDSE
 python3 check_footprints.py
 ```
 
-Ce script interroge le catalogue CDSE et affiche les scènes qui couvrent **vraiment** La Réunion.
-
 #### Étape 2 — Télécharger la scène
-
-Édite `download_reunion.py` avec l'ID de la scène identifiée, puis :
 
 ```bash
 python3 download_reunion.py
@@ -206,7 +212,265 @@ python3 ghost_pipeline.py
 
 **Durée** : 2-3 minutes (CFAR + clustering + croisement GPS).
 
-**Résultat** : `ghost_boats.json` — chargé automatiquement par le serveur au prochain redémarrage.
+**Résultat** : `ghost_boats.json` — chargé automatiquement par le serveur.
+
+---
+
+## ⏰ Automatisation (CRON)
+
+Le radar peut fonctionner **entièrement automatiquement** grâce à un cron job qui vérifie les nouvelles scènes Sentinel-1 toutes les 30 minutes.
+
+### 📋 Vue d'ensemble
+
+| Fréquence | Tâche | Fichier de log |
+|---|---|---|
+| **Toutes les 30 min** | Vérifier nouvelle scène + pipeline SAR | `logs/cron.log` |
+| **Tous les jours à 3h UTC** | Nettoyer les scènes > 30 jours | `logs/cleanup.log` |
+| **Toutes les heures** | Vérifier que le serveur Node tourne | `logs/server.log` |
+
+### 🔧 Étape 1 — Créer `auto_update.py`
+
+Ce script vérifie s'il y a une **nouvelle** scène Sentinel-1 disponible sur le CDSE, et si oui, la télécharge et lance le pipeline CFAR.
+
+**Créer le fichier** :
+
+```bash
+nano auto_update.py
+```
+
+**Contenu** (résumé — voir le fichier complet dans le repo) :
+
+```python
+#!/usr/bin/env python3
+"""
+Auto-update du radar maritime Réunion.
+Vérifie les nouvelles scènes Sentinel-1 et lance le pipeline automatiquement.
+"""
+
+import os
+import sys
+import subprocess
+from pathlib import Path
+from datetime import datetime, timezone, timedelta
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+NAVY_DIR = Path(__file__).parent
+STATE_FILE = NAVY_DIR / 'last_scene.txt'
+PENDING_FILE = NAVY_DIR / 'pending_scene.txt'
+
+# ... (voir le fichier complet)
+
+def main():
+    # 1. Auth CDSE
+    # 2. Chercher la scène la plus récente
+    # 3. Comparer avec last_scene.txt
+    # 4. Si nouvelle → télécharger + pipeline
+    # 5. Mettre à jour last_scene.txt
+    pass
+
+if __name__ == '__main__':
+    main()
+```
+
+### 🔧 Étape 2 — Créer le dossier logs
+
+```bash
+mkdir -p logs
+```
+
+### 🔧 Étape 3 — Éditer le crontab
+
+```bash
+crontab -e
+```
+
+**Ajouter ces lignes** à la fin du fichier :
+
+```cron
+# ============================================================
+# RADAR MARITIME RÉUNION — Tâches automatiques
+# ============================================================
+
+# Toutes les 30 minutes : vérifier nouvelle scène Sentinel-1 + pipeline SAR
+*/30 * * * * cd /home/TON_USER/radar-maritime-reunion && /usr/bin/python3 auto_update.py >> logs/cron.log 2>&1
+
+# Tous les jours à 3h UTC : nettoyer les vieilles scènes SAR (> 30 jours)
+0 3 * * * cd /home/TON_USER/radar-maritime-reunion && find sar_data/ -name "*.SAFE" -mtime +30 -exec rm -rf {} \; >> logs/cleanup.log 2>&1
+
+# Toutes les heures : vérifier que le serveur Node tourne, sinon le relancer
+0 * * * * pgrep -f "node server.js" > /dev/null || (cd /home/TON_USER/radar-maritime-reunion && nohup node server.js >> logs/server.log 2>&1 &)
+```
+
+> ⚠️ **Remplace `/home/TON_USER/radar-maritime-reunion` par le chemin absolu de ton projet.**
+>
+> Pour connaître ton chemin exact :
+> ```bash
+> pwd
+> ```
+> Si tu as cloné le repo dans ton home, ça sera `/home/ton_user/radar-maritime-reunion`.
+
+**Sauvegarder et quitter** (nano : `Ctrl+O`, `Entrée`, `Ctrl+X`).
+
+### 🔧 Étape 4 — Vérifier l'installation
+
+**Vérifier le crontab** :
+
+```bash
+crontab -l | grep radar
+```
+
+Tu dois voir les 3 lignes.
+
+**Vérifier que les chemins sont corrects** :
+
+```bash
+which python3
+which node
+```
+
+Adapte les chemins dans le crontab si nécessaire (par exemple `/usr/local/bin/python3` au lieu de `/usr/bin/python3`).
+
+### 🔧 Étape 5 — Test manuel AVANT de laisser tourner
+
+**C'est crucial.** Si le script a une erreur, le cron va échouer silencieusement.
+
+```bash
+cd ~/radar-maritime-reunion
+python3 auto_update.py
+```
+
+**Cas 1 — Scène déjà traitée** :
+```
+[2026-10-13 11:30:00] 🔍 Vérification nouvelle scène Sentinel-1...
+[2026-10-13 11:30:00]    Dernière scène traitée : S1D_IW_GRDH_1SDV_20261008T...
+[2026-10-13 11:30:01] 📡 Scène récente : S1D_IW_GRDH_1SDV_20261008T...
+[2026-10-13 11:30:01] ✓ Déjà traitée — rien à faire
+```
+
+→ **Le cron peut tourner sans risque.**
+
+**Cas 2 — Nouvelle scène détectée** :
+```
+[2026-10-13 11:30:00] 🆕 NOUVELLE SCÈNE — Lancement du pipeline...
+[2026-10-13 11:30:01]    → Téléchargement de la scène...
+...
+[2026-10-13 11:35:00]    ✓ Téléchargement OK
+[2026-10-13 11:35:00]    → Détection CFAR...
+...
+[2026-10-13 11:40:00] ✅ Terminé ! Scène traitée : S1D_IW_GRDH_1SDV_20261014T...
+```
+
+→ Le pipeline tourne (5-10 minutes).
+
+### 📊 Étape 6 — Surveiller les logs
+
+**En temps réel** :
+
+```bash
+tail -f logs/cron.log
+```
+
+**Voir les dernières exécutions** :
+
+```bash
+cat logs/cron.log
+```
+
+**Voir les erreurs** :
+
+```bash
+grep -i error logs/cron.log
+```
+
+### 🔍 Étape 7 — Vérifier que le cron tourne
+
+**Attends 30 minutes** (jusqu'à la prochaine demi-heure pile), puis :
+
+```bash
+ls -lh logs/cron.log
+cat logs/cron.log
+```
+
+Si le fichier contient des logs récents, **le cron fonctionne**.
+
+### 🛑 Désactiver le cron
+
+**Commenter les lignes** dans le crontab :
+
+```bash
+crontab -e
+# Ajoute # au début de chaque ligne radar
+```
+
+**Ou tout supprimer** :
+
+```bash
+crontab -r
+```
+
+### ⚠️ Points d'attention
+
+**1. Chemins absolus obligatoires**
+
+Le cron n'utilise **pas** ton `~/.bashrc`, donc :
+- Chemins absolus partout (`/usr/bin/python3`, pas `python3`)
+- `cd` avant chaque commande
+- Variables d'environnement chargées via `dotenv` (pas via le shell)
+
+**2. Fréquence et ressources**
+
+Le pipeline SAR utilise **2-3 minutes de CPU** par exécution. Toutes les 30 minutes = charge continue.
+
+**Recommandation** : si ta machine est lente, réduis à toutes les 6 heures :
+```cron
+0 */6 * * * cd ... && python3 auto_update.py >> logs/cron.log 2>&1
+```
+
+Sentinel-1 ne passe que tous les 6 jours, donc toutes les 6 heures est suffisant.
+
+**3. Éviter les exécutions en double**
+
+Si le pipeline tourne plus longtemps que l'intervalle, deux instances peuvent se lancer en parallèle. Utilise `flock` :
+
+```cron
+*/30 * * * * flock -n /tmp/radar.lock -c 'cd /home/TON_USER/radar-maritime-reunion && python3 auto_update.py >> logs/cron.log 2>&1'
+```
+
+**4. Logs obligatoires**
+
+Sans `>> logs/cron.log 2>&1`, tu ne verras **aucune erreur**. Toujours rediriger.
+
+**5. Test avant de laisser tourner**
+
+**Teste toujours `python3 auto_update.py` manuellement** avant de compter sur le cron.
+
+### 📋 Récapitulatif du flux automatique
+
+```
+Cron (toutes les 30 min)
+    ↓
+auto_update.py
+    ↓
+Vérifie CDSE pour nouvelle scène
+    ↓
+Si nouvelle scène :
+    ├── Télécharge (900 MB)
+    ├── Lance ghost_pipeline.py (CFAR)
+    └── Met à jour ghost_boats.json
+    ↓
+Serveur Node.js (fs.watch)
+    ↓
+Recharge automatiquement
+    ↓
+Navigateur (WebSocket)
+    ↓
+Affiche les nouvelles détections
+```
+
+**Tu n'as plus rien à faire.** Le radar se met à jour tout seul à chaque nouvelle scène Sentinel-1.
 
 ---
 
@@ -246,13 +510,19 @@ node ais-relay/test-ais.js
 
 ```bash
 cd sar_data/S1X_..._COG.SAFE
-python3 ~/Desktop/NAVY/test_geo.py
+python3 test_geo.py
 ```
 
 ### Tester le téléchargement CDSE
 
 ```bash
 python3 test_download.py
+```
+
+### Tester l'automatisation
+
+```bash
+python3 auto_update.py
 ```
 
 ---
@@ -270,6 +540,7 @@ python3 test_download.py
 | **SAR** | Sentinel-1 GRD (Copernicus) |
 | **AIS** | AISStream (WebSocket) |
 | **Séismes** | USGS GeoJSON |
+| **Automatisation** | Cron + auto_update.py |
 
 ---
 
@@ -290,7 +561,8 @@ Les contributions sont **bienvenues** ! N'hésite pas à :
 - [ ] Support de Sentinel-2 (optique)
 - [ ] Détection automatique de dark vessels via ML
 - [ ] Export GeoJSON
-- [ ] Alertes email
+- [ ] Alertes email / Telegram
+- [ ] Dashboard web pour surveiller le cron
 
 ---
 
