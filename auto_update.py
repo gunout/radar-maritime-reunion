@@ -73,7 +73,7 @@ def notify_discord(message: str):
     try:
         requests.post(
             DISCORD_WEBHOOK_URL,
-            json={"content": message[:1900]},  # limite Discord ~2000
+            json={"content": message[:1900]},
             timeout=15,
         )
     except Exception as e:
@@ -155,7 +155,8 @@ def find_latest_scene():
         params={
             "$filter": (
                 f"Collection/Name eq 'SENTINEL-1' "
-                f"and contains(Name,'IW_GRDH') "
+                # ✅ Accepter IW (S1A/S1D) ET S6 (S1C)
+                f"and (contains(Name,'IW_GRDH') or contains(Name,'S6_GRDH')) "
                 f"and OData.CSC.Intersects(area=geography'SRID=4326;{polygon}') "
                 f"and ContentDate/Start ge {start_date.strftime('%Y-%m-%dT%H:%M:%S.000Z')}"
             ),
@@ -214,7 +215,6 @@ def main():
 
     log("🆕 NOUVELLE SCÈNE — Lancement du pipeline...")
 
-    # 🔔 Notification : nouvelle scène détectée
     notify_all(
         f"🆕 *Radar Réunion* — nouvelle scène détectée\n"
         f"`{scene_name}`\n"
@@ -224,7 +224,6 @@ def main():
         subject="[Radar Réunion] Nouvelle scène Sentinel-1"
     )
 
-    # Enregistre l'ID pour download_reunion.py
     PENDING_FILE.write_text(f"{scene_id}\n{scene_name}")
     log(f"   ✓ pending_scene.txt écrit")
 
@@ -256,9 +255,24 @@ def main():
 
     # Étape 2 : Pipeline ghost boats
     log("   → Détection CFAR...")
+
+    # ✅ Trouver le dossier .SAFE le plus récent dans sar_data/
+    safe_dirs = sorted(
+        (NAVY_DIR / 'sar_data').glob('*.SAFE'),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True
+    )
+    if not safe_dirs:
+        log("❌ Aucun dossier .SAFE dans sar_data/")
+        notify_all("❌ *Radar Réunion* — pas de .SAFE après téléchargement")
+        return
+
+    safe_path = safe_dirs[0]
+    log(f"   → Traitement de : {safe_path.name}")
+
     try:
         result = subprocess.run(
-            ['/usr/bin/python3', str(NAVY_DIR / 'ghost_pipeline.py')],
+            ['/usr/bin/python3', str(NAVY_DIR / 'ghost_pipeline.py'), str(safe_path)],
             cwd=NAVY_DIR,
             capture_output=True,
             text=True,
@@ -280,11 +294,9 @@ def main():
         notify_all(f"❌ *Radar Réunion* — timeout pipeline\n`{scene_name}`")
         return
 
-    # Enregistre la scène traitée
     STATE_FILE.write_text(scene_name)
     log(f"✅ Terminé ! Scène traitée : {scene_name}")
 
-    # 🔔 Notification : succès
     notify_all(
         f"✅ *Radar Réunion* — pipeline terminé\n"
         f"Scène : `{scene_name}`\n"
@@ -293,7 +305,6 @@ def main():
         subject="[Radar Réunion] Pipeline terminé"
     )
 
-    # Supprime pending_scene.txt
     if PENDING_FILE.exists():
         PENDING_FILE.unlink()
 
