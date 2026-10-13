@@ -3,6 +3,11 @@
 Auto-update du radar maritime Réunion.
 Vérifie s'il y a une nouvelle scène Sentinel-1 qui couvre La Réunion.
 Si oui, télécharge et lance le pipeline ghost boats automatiquement.
+
+Notifications supportées (optionnelles, activables via .env) :
+  - Telegram  : TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID
+  - Discord   : DISCORD_WEBHOOK_URL
+  - Mail      : MAIL_TO (+ commande `mail` disponible)
 """
 
 import os
@@ -24,6 +29,12 @@ LOG_PREFIX = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]"
 CLIENT_ID = os.getenv('CDSE_CLIENT_ID')
 CLIENT_SECRET = os.getenv('CDSE_CLIENT_SECRET')
 
+# --- Notifications (optionnel) ---
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+TELEGRAM_CHAT_ID   = os.getenv('TELEGRAM_CHAT_ID')
+DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL')
+MAIL_TO            = os.getenv('MAIL_TO')
+
 REU_LAT = -21.12
 REU_LON = 55.53
 
@@ -35,6 +46,62 @@ if not CLIENT_ID or not CLIENT_SECRET:
 def log(msg):
     print(f"{LOG_PREFIX} {msg}", flush=True)
 
+
+# ---------- Notifications ----------
+
+def notify_telegram(message: str):
+    if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            data={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": message,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True,
+            },
+            timeout=15,
+        )
+    except Exception as e:
+        log(f"⚠️  Telegram échec : {e}")
+
+
+def notify_discord(message: str):
+    if not DISCORD_WEBHOOK_URL:
+        return
+    try:
+        requests.post(
+            DISCORD_WEBHOOK_URL,
+            json={"content": message[:1900]},  # limite Discord ~2000
+            timeout=15,
+        )
+    except Exception as e:
+        log(f"⚠️  Discord échec : {e}")
+
+
+def notify_mail(subject: str, message: str):
+    if not MAIL_TO:
+        return
+    try:
+        subprocess.run(
+            ['mail', '-s', subject, MAIL_TO],
+            input=message,
+            text=True,
+            timeout=15,
+        )
+    except Exception as e:
+        log(f"⚠️  Mail échec : {e}")
+
+
+def notify_all(message: str, subject: str = "Monitor DAC"):
+    log("   → Envoi notifications...")
+    notify_telegram(message)
+    notify_discord(message)
+    notify_mail(subject, message)
+
+
+# ---------- Code existant ----------
 
 def get_token():
     r = requests.post(
@@ -125,6 +192,7 @@ def main():
         scene = find_latest_scene()
     except Exception as e:
         log(f"❌ Erreur recherche: {e}")
+        notify_all(f"❌ *Radar Réunion* — erreur recherche scène :\n`{e}`")
         return
 
     if not scene:
@@ -146,6 +214,16 @@ def main():
 
     log("🆕 NOUVELLE SCÈNE — Lancement du pipeline...")
 
+    # 🔔 Notification : nouvelle scène détectée
+    notify_all(
+        f"🆕 *Radar Réunion* — nouvelle scène détectée\n"
+        f"`{scene_name}`\n"
+        f"Date : {scene_date}\n"
+        f"Taille : {size_mb:.0f} MB\n"
+        f"Pipeline en cours...",
+        subject="[Radar Réunion] Nouvelle scène Sentinel-1"
+    )
+
     # Enregistre l'ID pour download_reunion.py
     PENDING_FILE.write_text(f"{scene_id}\n{scene_name}")
     log(f"   ✓ pending_scene.txt écrit")
@@ -163,10 +241,17 @@ def main():
         if result.returncode != 0:
             log(f"❌ Échec téléchargement (code {result.returncode})")
             log(f"   stderr: {result.stderr[-500:]}")
+            notify_all(
+                f"❌ *Radar Réunion* — échec téléchargement\n"
+                f"`{scene_name}`\n"
+                f"Code : {result.returncode}\n"
+                f"```\n{result.stderr[-500:]}\n```"
+            )
             return
         log("   ✓ Téléchargement OK")
     except subprocess.TimeoutExpired:
         log("❌ Timeout téléchargement (>20 min)")
+        notify_all(f"❌ *Radar Réunion* — timeout téléchargement\n`{scene_name}`")
         return
 
     # Étape 2 : Pipeline ghost boats
@@ -182,15 +267,31 @@ def main():
         if result.returncode != 0:
             log(f"❌ Échec pipeline (code {result.returncode})")
             log(f"   stderr: {result.stderr[-500:]}")
+            notify_all(
+                f"❌ *Radar Réunion* — échec pipeline\n"
+                f"`{scene_name}`\n"
+                f"Code : {result.returncode}\n"
+                f"```\n{result.stderr[-500:]}\n```"
+            )
             return
         log("   ✓ Pipeline OK")
     except subprocess.TimeoutExpired:
         log("❌ Timeout pipeline (>40 min)")
+        notify_all(f"❌ *Radar Réunion* — timeout pipeline\n`{scene_name}`")
         return
 
     # Enregistre la scène traitée
     STATE_FILE.write_text(scene_name)
     log(f"✅ Terminé ! Scène traitée : {scene_name}")
+
+    # 🔔 Notification : succès
+    notify_all(
+        f"✅ *Radar Réunion* — pipeline terminé\n"
+        f"Scène : `{scene_name}`\n"
+        f"Date scène : {scene_date}\n"
+        f"Les ghost boats sont à jour.",
+        subject="[Radar Réunion] Pipeline terminé"
+    )
 
     # Supprime pending_scene.txt
     if PENDING_FILE.exists():
