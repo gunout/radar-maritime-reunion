@@ -2,6 +2,7 @@
 """
 Pipeline Ghost Boats — Mode SAR seul.
 Détecte les signatures radar au large de La Réunion.
+Version optimisée mémoire : traitement par tuiles de 2048x2048.
 """
 
 import json
@@ -25,7 +26,7 @@ REUNION_LAT = -21.12
 REUNION_LON = 55.53
 
 RADIUS_KM = 150
-MIN_DIST_REU_KM = 30               # Rayon île = 30 km
+MIN_DIST_REU_KM = 30
 KM_PER_DEG_LAT = 111.0
 
 CFAR_GUARD = 2
@@ -33,7 +34,9 @@ CFAR_TRAIN = 5
 CFAR_THRESHOLD_FACTOR = 5.0
 MIN_VESSEL_PIXELS = 3
 CLUSTER_RADIUS_PX = 5
-MIN_INTENSITY_RATIO = 2.5          # img > mean_local * 2.5
+MIN_INTENSITY_RATIO = 2.5
+
+TILE_SIZE = 2048  # Taille des tuiles (RAM limitée)
 
 OUTPUT_FILE = Path('/home/gleaphe/Desktop/NAVY/ghost_boats.json')
 
@@ -112,13 +115,12 @@ class SarGeolocator:
 
 
 # ============================================================
-# CFAR VECTORISÉ
+# CFAR TUILÉ
 # ============================================================
-def cfar_detect(image):
-    print("      Filtre médian (scipy)...", flush=True)
-    img = median_filter(image.astype(np.float32), size=3)
+def cfar_detect_tile(tile):
+    """CFAR sur une tuile (max 2048×2048) — RAM limitée."""
+    img = median_filter(tile.astype(np.float32), size=3)
 
-    print("      Calcul des statistiques locales...", flush=True)
     h, w = img.shape
     g = CFAR_GUARD
     t = CFAR_TRAIN
@@ -129,7 +131,6 @@ def cfar_detect(image):
     var_local = np.maximum(sq_mean - mean_local ** 2, 0)
     std_local = np.sqrt(var_local)
 
-    print("      Seuillage...", flush=True)
     threshold = mean_local + CFAR_THRESHOLD_FACTOR * std_local
     mask = (img > threshold) & (img > mean_local * MIN_INTENSITY_RATIO)
 
@@ -138,7 +139,6 @@ def cfar_detect(image):
     mask[:, :t + g] = False
     mask[:, -(t + g):] = False
 
-    print("      Extraction des coordonnées...", flush=True)
     ys, xs = np.where(mask)
     detections = []
     for y, x in zip(ys, xs):
@@ -150,7 +150,43 @@ def cfar_detect(image):
             'ratio': float(img[y, x] / max(mean_local[y, x], 1))
         })
 
+    # Libère explicitement la RAM
+    del img, mean_local, sq_mean, var_local, std_local, threshold, mask
     return detections
+
+
+def cfar_detect_tiled(tiff_path, x0, y0, w, h, tile_size=TILE_SIZE):
+    """Traite la fenêtre par tuiles pour limiter la RAM."""
+    all_detections = []
+    n_tiles_x = (w + tile_size - 1) // tile_size
+    n_tiles_y = (h + tile_size - 1) // tile_size
+    total = n_tiles_x * n_tiles_y
+    tile_n = 0
+
+    with rasterio.open(tiff_path) as src:
+        for ty in range(n_tiles_y):
+            for tx in range(n_tiles_x):
+                tile_n += 1
+                tw = min(tile_size, w - tx * tile_size)
+                th = min(tile_size, h - ty * tile_size)
+
+                tile_x0 = x0 + tx * tile_size
+                tile_y0 = y0 + ty * tile_size
+
+                print(f"      Tuile {tile_n}/{total} ({th}x{tw})...", flush=True)
+                tile = src.read(1, window=Window(tile_x0, tile_y0, tw, th))
+
+                tile_detections = cfar_detect_tile(tile)
+
+                # Recale les coordonnées dans la fenêtre globale
+                for d in tile_detections:
+                    d['x'] += tx * tile_size
+                    d['y'] += ty * tile_size
+
+                all_detections.extend(tile_detections)
+                del tile  # Libère la RAM
+
+    return all_detections
 
 
 # ============================================================
@@ -217,7 +253,7 @@ def haversine_m(lat1, lon1, lat2, lon2):
 # ============================================================
 def main():
     print("=" * 60)
-    print("  🌊 Détection SAR — La Réunion (mode sans AIS)")
+    print("  🌊 Détection SAR — La Réunion (mode tuilé)")
     print("=" * 60)
 
     print("\n[1/6] Chargement de la grille de géolocalisation...")
@@ -265,24 +301,13 @@ def main():
     print(f"\n[3/6] Fenêtre d'intérêt : x={x0} y={y0} w={w} h={h}")
     print(f"      Soit ~{w*h/1e6:.2f} M pixels ({w}x{h})")
 
-    print(f"\n[4/6] Lecture de {tiff.name}...")
-    with rasterio.open(tiff) as src:
-        window = Window(x0, y0, w, h)
-        img = src.read(1, window=window)
-        print(f"      Image lue : {img.shape}  dtype={img.dtype}")
+    n_tiles = ((w + TILE_SIZE - 1) // TILE_SIZE) * ((h + TILE_SIZE - 1) // TILE_SIZE)
+    print(f"\n[4/6] Détection CFAR tuilée ({TILE_SIZE}x{TILE_SIZE}, {n_tiles} tuiles)")
+    raw = cfar_detect_tiled(tiff, x0, y0, w, h, TILE_SIZE)
+    print(f"\n[5/6] {len(raw)} pixels candidats au total")
 
-    print(f"\n[5/6] Détection CFAR (seuil={CFAR_THRESHOLD_FACTOR}, ratio={MIN_INTENSITY_RATIO})...")
-    raw = cfar_detect(img)
-    print(f"      {len(raw)} pixels candidats")
     clusters = cluster_detections(raw)
     print(f"      {len(clusters)} clusters (navires potentiels)")
-
-    # Statistiques de distribution
-    if clusters:
-        intensities = [c['intensity'] for c in clusters]
-        pixels_list = [c['pixels'] for c in clusters]
-        print(f"      Distribution intensité : min={min(intensities):.0f} max={max(intensities):.0f} median={np.median(intensities):.0f}")
-        print(f"      Distribution pixels   : min={min(pixels_list)} max={max(pixels_list)} median={np.median(pixels_list):.0f}")
 
     print(f"\n[6/6] Conversion GPS + filtrage côtier...")
     detections = []
@@ -326,7 +351,7 @@ def main():
         'center': {'lat': REUNION_LAT, 'lon': REUNION_LON},
         'radius_km': RADIUS_KM,
         'min_dist_reunion_km': MIN_DIST_REU_KM,
-        'mode': 'SAR_only',
+        'mode': 'SAR_only_tiled',
         'stats': {
             'total_detections': len(detections),
             'ghosts': len(ghosts)

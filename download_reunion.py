@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Télécharge la scène Sentinel-1 qui couvre La Réunion."""
+"""
+Télécharge la scène Sentinel-1 qui couvre La Réunion.
+
+Lit la scène depuis pending_scene.txt (écrit par auto_update.py).
+Si absent, utilise la scène hardcodée (fallback pour test manuel).
+"""
 
 import os
 import requests
@@ -11,15 +16,40 @@ load_dotenv()
 CLIENT_ID = os.getenv('CDSE_CLIENT_ID')
 CLIENT_SECRET = os.getenv('CDSE_CLIENT_SECRET')
 
-# Scène identifiée par check_footprints.py
-PRODUCT_ID = '48156e85-1b59-4de9-8569-227446811951'
-PRODUCT_NAME = 'S1D_IW_GRDH_1SDV_20261008T014642_20261008T014707_004917_009431_8659_COG.SAFE'
+if not CLIENT_ID or not CLIENT_SECRET:
+    print("❌ CDSE_CLIENT_ID et CDSE_CLIENT_SECRET requis dans .env")
+    exit(1)
+
+# ============================================================
+# SÉLECTION DE LA SCÈNE
+# ============================================================
+PENDING_FILE = Path(__file__).parent / 'pending_scene.txt'
+
+if PENDING_FILE.exists():
+    lines = PENDING_FILE.read_text().strip().split('\n')
+    if len(lines) >= 2:
+        PRODUCT_ID = lines[0].strip()
+        PRODUCT_NAME = lines[1].strip()
+        print(f"→ Scène depuis pending_scene.txt : {PRODUCT_NAME}")
+    else:
+        print("⚠️  pending_scene.txt mal formé — utilisation fallback")
+        PENDING_FILE = None
+
+if not PENDING_FILE or not PENDING_FILE.exists():
+    # Fallback : scène hardcodée
+    PRODUCT_ID = '48156e85-1b59-4de9-8569-227446811951'
+    PRODUCT_NAME = 'S1D_IW_GRDH_1SDV_20261008T014642_20261008T014707_004917_009431_8659_COG.SAFE'
+    print(f"→ Scène hardcodée (fallback) : {PRODUCT_NAME}")
+
+print(f"   ID : {PRODUCT_ID}")
 
 OUTPUT_DIR = Path(__file__).parent / 'sar_data'
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# Auth
-print("→ Authentification CDSE...")
+# ============================================================
+# AUTHENTIFICATION
+# ============================================================
+print("\n→ Authentification CDSE...")
 r = requests.post(
     "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token",
     data={
@@ -33,7 +63,9 @@ r.raise_for_status()
 token = r.json()["access_token"]
 print("✓ Token obtenu")
 
-# Téléchargement
+# ============================================================
+# TÉLÉCHARGEMENT
+# ============================================================
 download_url = f"https://download.dataspace.copernicus.eu/odata/v1/Products({PRODUCT_ID})/$value"
 output_file = OUTPUT_DIR / f"{PRODUCT_NAME}.zip"
 
@@ -43,7 +75,7 @@ if not output_file.exists():
         download_url,
         headers={"Authorization": f"Bearer {token}"},
         stream=True,
-        timeout=600,
+        timeout=1200,
         allow_redirects=True
     )
     r.raise_for_status()
@@ -67,7 +99,9 @@ if not output_file.exists():
 else:
     print(f"\n✓ Fichier déjà présent : {output_file}")
 
-# Extraction
+# ============================================================
+# EXTRACTION
+# ============================================================
 safe_dir = OUTPUT_DIR / PRODUCT_NAME
 if not safe_dir.exists():
     print(f"\n→ Extraction...")
@@ -76,3 +110,5 @@ if not safe_dir.exists():
     print(f"✓ Extrait dans {safe_dir}")
 else:
     print(f"\n✓ Déjà extrait : {safe_dir}")
+
+print(f"\n✓ Terminé")

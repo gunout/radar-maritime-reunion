@@ -11,3 +11,6 @@ sar_data/
 *.SAFE/
 ghost_boats.json
 ais_vessels.json
+last_scene.txt
+pending_scene.txt
+logs/

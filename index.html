@@ -613,19 +613,35 @@ function updateKPIs() {
     document.getElementById('kpiMil').textContent = '0';
     document.getElementById('kpiQuakes').textContent = state.data.quakes.length;
 
-    // Date de la scène SAR
+    // Date + heure de la scène SAR
     const trend = document.getElementById('kpiGhostsTrend');
     const sceneFooter = document.getElementById('ghostScene');
+
     if (state.data.ghostsScene) {
-        const m = state.data.ghostsScene.match(/(\d{4})(\d{2})(\d{2})/);
+        // Extrait date + heure : 20261008T014642
+        const m = state.data.ghostsScene.match(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})/);
         if (m) {
-            const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`);
-            const fmt = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
-            trend.textContent = `Scène du ${fmt}`;
-            sceneFooter.textContent = `Sentinel-1 SAR — scène du ${fmt}`;
+            const d = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00Z`);
+            const dateStr = d.toLocaleDateString('fr-FR', {
+                day: 'numeric', month: 'long', year: 'numeric'
+            });
+            const heureStr = d.toLocaleTimeString('fr-FR', {
+                hour: '2-digit', minute: '2-digit', timeZone: 'UTC'
+            });
+            trend.textContent = `Scène du ${dateStr} à ${heureStr} UTC`;
+            sceneFooter.textContent = `Sentinel-1 SAR — scène du ${dateStr} à ${heureStr} UTC`;
         } else {
-            trend.textContent = 'Sentinel-1 SAR';
-            sceneFooter.textContent = 'Sentinel-1 SAR';
+            // Fallback : juste la date
+            const m2 = state.data.ghostsScene.match(/(\d{4})(\d{2})(\d{2})/);
+            if (m2) {
+                const d = new Date(`${m2[1]}-${m2[2]}-${m2[3]}T00:00:00Z`);
+                const fmt = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+                trend.textContent = `Scène du ${fmt}`;
+                sceneFooter.textContent = `Sentinel-1 SAR — scène du ${fmt}`;
+            } else {
+                trend.textContent = 'Sentinel-1 SAR';
+                sceneFooter.textContent = 'Sentinel-1 SAR';
+            }
         }
     } else {
         trend.textContent = 'En attente…';
