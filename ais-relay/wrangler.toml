@@ -1,0 +1,11 @@
+name = "ais-relay"
+main = "worker.js"
+compatibility_date = "2026-10-12"
+
+[[durable_objects.bindings]]
+name = "AIS_RELAY"
+class_name = "AISRelay"
+
+[exports.AISRelay]
+type = "durable-object"
+storage = "sqlite"

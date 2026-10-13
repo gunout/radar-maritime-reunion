@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Radar Maritime Réunion — Surveillance open source</title>
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚓</text></svg>">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+
+<style>
+:root {
+    --blue-france: #000091; --blue-light: #F5F5FE; --blue-mid: #E3E3FD;
+    --red-marianne: #E1000F; --red-light: #FDEFF2;
+    --green: #18753C; --orange: #B34000;
+    --grey-50: #161616; --grey-200: #3A3A3A; --grey-425: #666666;
+    --grey-925: #E5E5E5; --grey-950: #EEEEEE; --grey-975: #F6F6F6;
+    --white: #FFFFFF;
+    --text: var(--grey-200); --text-title: var(--grey-50);
+    --text-mention: var(--grey-425);
+    --border: var(--grey-925); --radius: 4px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { font-size: 16px; }
+body {
+    font-family: "Marianne", "Segoe UI", system-ui, sans-serif;
+    background: var(--white); color: var(--text); line-height: 1.5;
+}
+.fr-header { background: var(--white); border-bottom: 1px solid var(--border); }
+.fr-header__top { background: var(--blue-france); color: var(--white); padding: 6px 0; font-size: 0.75rem; text-align: center; }
+.fr-header__top a { color: var(--white); }
+.fr-header__main { display: flex; align-items: center; justify-content: space-between; padding: 1rem 0; gap: 1rem; flex-wrap: wrap; }
+.fr-header__brand { display: flex; align-items: center; gap: 0.75rem; text-decoration: none; }
+.fr-header__brand-logo {
+    width: 44px; height: 44px; background: var(--blue-france); color: var(--white);
+    border-radius: var(--radius); display: flex; align-items: center; justify-content: center;
+    font-size: 1.4rem; font-weight: 700;
+}
+.fr-header__brand-text { display: flex; flex-direction: column; line-height: 1.2; }
+.fr-header__brand-name { font-weight: 700; font-size: 1.05rem; color: var(--blue-france); }
+.fr-header__brand-tag { font-size: 0.75rem; color: var(--text-mention); }
+.fr-header__tools { display: flex; align-items: center; gap: 0.5rem; }
+.fr-btn {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.5rem 1rem; border-radius: var(--radius);
+    font-family: inherit; font-size: 0.875rem; font-weight: 500;
+    cursor: pointer; border: 1px solid transparent;
+    text-decoration: none;
+}
+.fr-btn--ghost { background: transparent; border-color: var(--border); color: var(--blue-france); }
+.fr-btn--sm { padding: 0.35rem 0.75rem; font-size: 0.8rem; }
+.fr-disclaimer {
+    background: var(--red-light); border-left: 4px solid var(--red-marianne);
+    padding: 0.75rem 1rem; font-size: 0.8rem; margin: 1rem 0;
+    border-radius: var(--radius); display: flex; gap: 0.75rem;
+}
+.fr-disclaimer i { color: var(--red-marianne); }
+.fr-disclaimer strong { color: var(--red-marianne); }
+.fr-container { max-width: 1400px; margin: 0 auto; padding: 0 1rem; }
+main { padding: 1.5rem 0 3rem; }
+.fr-status {
+    display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem;
+    padding: 0.75rem 1rem; background: var(--blue-light);
+    border-radius: var(--radius); font-size: 0.8rem;
+    margin-bottom: 1rem; align-items: center;
+}
+.fr-status__item { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--text-mention); }
+.fr-status__item i { color: var(--blue-france); }
+.fr-badge-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green);
+    animation: pulse 2s infinite;
+}
+.fr-badge-dot--wait { background: var(--orange); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+.fr-section-title {
+    font-size: 1.25rem; font-weight: 700; color: var(--text-title);
+    margin: 1.75rem 0 0.75rem; display: flex; align-items: center; gap: 0.5rem;
+}
+.fr-section-title i { color: var(--blue-france); }
+.fr-kpi-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem; margin-bottom: 1rem;
+}
+.fr-kpi {
+    background: var(--white); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 1.25rem;
+    border-top: 4px solid var(--blue-france);
+}
+.fr-kpi--danger { border-top-color: var(--red-marianne); }
+.fr-kpi--success { border-top-color: var(--green); }
+.fr-kpi--warning { border-top-color: var(--orange); }
+.fr-kpi__label {
+    font-size: 0.75rem; color: var(--text-mention);
+    text-transform: uppercase; letter-spacing: 0.03em;
+    margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;
+}
+.fr-kpi__value { font-size: 2rem; font-weight: 700; color: var(--text-title); line-height: 1; }
+.fr-kpi__trend {
+    display: inline-block; margin-top: 0.6rem;
+    font-size: 0.75rem; padding: 2px 8px;
+    border-radius: 12px; font-weight: 600;
+    background: var(--grey-950); color: var(--text-mention);
+}
+.fr-card {
+    background: var(--white); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+}
+.fr-card__header {
+    padding: 0.9rem 1rem; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--blue-light);
+    flex-wrap: wrap; gap: 0.5rem;
+}
+.fr-card__title { font-size: 0.95rem; font-weight: 700; color: var(--blue-france); }
+.fr-card__body { padding: 1rem; }
+.fr-card__footer {
+    padding: 0.6rem 1rem; border-top: 1px solid var(--border);
+    font-size: 0.75rem; color: var(--text-mention);
+    background: var(--grey-975);
+    display: flex; justify-content: space-between;
+    flex-wrap: wrap; gap: 0.5rem;
+}
+.fr-radar-container {
+    position: relative; height: 500px;
+    background: radial-gradient(circle at center, #0a1628 0%, #020617 100%);
+    border: 1px solid var(--blue-france);
+}
+#radarCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.radar-overlay-info {
+    position: absolute; top: 12px; left: 12px;
+    background: rgba(0,0,145,0.85); color: #fff;
+    padding: 8px 12px; border-radius: 4px; font-size: 0.75rem;
+    z-index: 10;
+}
+.radar-legend {
+    position: absolute; bottom: 12px; right: 12px;
+    background: rgba(0,0,0,0.7); color: #fff;
+    padding: 8px 12px; border-radius: 4px; font-size: 0.7rem;
+    z-index: 10;
+}
+.radar-legend .dot {
+    display: inline-block; width: 8px; height: 8px;
+    border-radius: 50%; margin-right: 4px;
+}
+.radar-legend .dot--cargo { background: #00d4ff; }
+.radar-legend .dot--ghost { background: #FF6600; }
+.radar-stats {
+    position: absolute; bottom: 12px; left: 12px;
+    background: rgba(0,0,145,0.85); color: #fff;
+    padding: 8px 12px; border-radius: 4px; font-size: 0.7rem;
+    z-index: 10;
+}
+.radar-stats .val { color: #00ff88; font-weight: 700; }
+.radar-stats .warn { color: #FF9900; font-weight: 700; }
+.fr-table-wrap { overflow-x: auto; max-height: 400px; overflow-y: auto; }
+.fr-table { width: 100%; border-collapse: collapse; font-size: 0.825rem; }
+.fr-table thead th {
+    background: var(--blue-light); color: var(--blue-france);
+    text-align: left; padding: 0.65rem 0.85rem;
+    font-weight: 700; font-size: 0.75rem;
+    text-transform: uppercase;
+    border-bottom: 2px solid var(--blue-france);
+    cursor: pointer;
+    position: sticky; top: 0;
+}
+.fr-table tbody td { padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--border); }
+.fr-table tbody tr:hover { background: var(--blue-light); cursor: pointer; }
+.fr-tag {
+    display: inline-block; padding: 2px 7px;
+    font-size: 0.7rem; border-radius: 10px;
+    font-weight: 600;
+}
+.fr-tag--info { background: var(--blue-mid); color: var(--blue-france); }
+.fr-tag--ghost { background: #FFE0B2; color: #E65100; font-weight: 700; }
+.fr-search {
+    display: flex; align-items: center; gap: 0.5rem;
+    background: var(--white); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 0.4rem 0.75rem;
+}
+.fr-search input {
+    border: none; outline: none; font-family: inherit;
+    font-size: 0.85rem; width: 160px;
+}
+.fr-footer {
+    background: var(--white); border-top: 2px solid var(--blue-france);
+    margin-top: 3rem; padding: 1.5rem 0;
+    font-size: 0.8rem; color: var(--text-mention);
+}
+.fr-footer__brand { display: flex; align-items: center; gap: 0.75rem; color: var(--blue-france); font-weight: 700; margin-bottom: 1rem; }
+.fr-modal {
+    display: none; position: fixed; inset: 0;
+    background: rgba(22,22,22,0.6);
+    z-index: 3000; align-items: center; justify-content: center;
+    padding: 1rem;
+}
+.fr-modal.active { display: flex; }
+.fr-modal__content {
+    background: var(--white); border-radius: var(--radius);
+    max-width: 560px; width: 100%; max-height: 90vh;
+    overflow-y: auto;
+}
+.fr-modal__header {
+    padding: 1rem 1.25rem; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between;
+}
+.fr-modal__title { font-size: 1.1rem; font-weight: 700; }
+.fr-modal__close { background: none; border: none; font-size: 1.4rem; cursor: pointer; }
+.fr-modal__body { padding: 1.25rem; }
+.map-legend {
+    background: rgba(255,255,255,0.95);
+    padding: 8px 12px; border-radius: var(--radius);
+    font-size: 0.75rem;
+    border: 1px solid var(--border);
+}
+.map-legend__title {
+    font-weight: 700; margin-bottom: 6px;
+    color: var(--blue-france);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 4px;
+}
+.map-legend__item { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+.map-legend__dot { width: 12px; height: 12px; border-radius: 50%; }
+.map-legend__dot--ghost { background: #FF6600; border: 2px solid #E65100; }
+.map-legend__dot--vessel { background: #00d4ff; }
+.map-legend__dot--quake { background: #E1000F; }
+
+.ghost-pulse {
+    animation: ghostPulse 1.5s ease-in-out infinite;
+}
+@keyframes ghostPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+</style>
+</head>
+<body>
+
+<div class="fr-header__top">Outil tiers indépendant — <a href="#disclaimer">statut et mentions légales</a></div>
+
+<header class="fr-header">
+    <div class="fr-container">
+        <div class="fr-header__main">
+            <a href="#" class="fr-header__brand">
+                <div class="fr-header__brand-logo">⚓</div>
+                <div class="fr-header__brand-text">
+                    <span class="fr-header__brand-name">Radar Maritime Réunion</span>
+                    <span class="fr-header__brand-tag">Veille open source — outil tiers non gouvernemental</span>
+                </div>
+            </a>
+            <div class="fr-header__tools">
+                <button class="fr-btn fr-btn--ghost fr-btn--sm" onclick="exportCSV()"><i class="fas fa-file-csv"></i> <span>CSV</span></button>
+                <button class="fr-btn fr-btn--ghost fr-btn--sm" onclick="exportPDF()"><i class="fas fa-file-pdf"></i> <span>PDF</span></button>
+                <button class="fr-btn fr-btn--ghost fr-btn--sm" onclick="showAbout()"><i class="fas fa-circle-info"></i></button>
+            </div>
+        </div>
+    </div>
+</header>
+
+<main class="fr-container">
+
+    <div class="fr-disclaimer" id="disclaimer">
+        <i class="fas fa-circle-info"></i>
+        <div>
+            <strong>Outil tiers non gouvernemental.</strong>
+            Radar maritime basé sur <em>Sentinel-1 SAR</em> (Copernicus) et <em>USGS</em>.
+            Les « ghost boats » sont des signatures radar détectées par algorithme CFAR.
+        </div>
+    </div>
+
+    <div class="fr-status">
+        <span class="fr-status__item">
+            <span class="fr-badge-dot fr-badge-dot--wait" id="statusDot"></span>
+            <span id="statusText">Chargement…</span>
+        </span>
+        <span class="fr-status__item"><i class="fas fa-clock"></i> MAJ : <strong id="lastUpdate">—</strong></span>
+        <span class="fr-status__item" id="apiStatus"><i class="fas fa-satellite-dish"></i> <strong>chargement…</strong></span>
+    </div>
+
+    <h2 class="fr-section-title"><i class="fas fa-chart-simple"></i> Vue d'ensemble</h2>
+
+    <div class="fr-kpi-grid">
+        <div class="fr-kpi fr-kpi--danger">
+            <div class="fr-kpi__label"><i class="fas fa-ghost"></i> Ghost boats (SAR)</div>
+            <div class="fr-kpi__value" id="kpiGhosts">—</div>
+            <span class="fr-kpi__trend" id="kpiGhostsTrend">Chargement…</span>
+        </div>
+        <div class="fr-kpi fr-kpi--success">
+            <div class="fr-kpi__label"><i class="fas fa-ship"></i> Navires AIS</div>
+            <div class="fr-kpi__value" id="kpiVessels">—</div>
+            <span class="fr-kpi__trend">AISStream</span>
+        </div>
+        <div class="fr-kpi fr-kpi--warning">
+            <div class="fr-kpi__label"><i class="fas fa-shield-halved"></i> Militaires</div>
+            <div class="fr-kpi__value" id="kpiMil">—</div>
+            <span class="fr-kpi__trend">Détection par type</span>
+        </div>
+        <div class="fr-kpi">
+            <div class="fr-kpi__label"><i class="fas fa-fire"></i> Séismes (24 h)</div>
+            <div class="fr-kpi__value" id="kpiQuakes">—</div>
+            <span class="fr-kpi__trend">USGS M ≥ 2.5</span>
+        </div>
+    </div>
+
+    <h2 class="fr-section-title"><i class="fas fa-satellite-dish"></i> Radar temps réel</h2>
+
+    <div class="fr-card" id="radarAnchor" style="margin-bottom:1rem;">
+        <div class="fr-card__header">
+            <div class="fr-card__title"><i class="fas fa-crosshairs"></i> Radar — Océan Indien</div>
+        </div>
+        <div class="fr-card__body" style="padding:0;">
+            <div class="fr-radar-container" id="radarContainer">
+                <canvas id="radarCanvas"></canvas>
+                <div class="radar-overlay-info">
+                    <div><strong>CENTRE :</strong> La Réunion (21.12°S, 55.53°E)</div>
+                    <div><strong>RAYON :</strong> 250 NM</div>
+                    <div><strong>CIBLES :</strong> <span id="radarTargetCount">0</span></div>
+                </div>
+                <div class="radar-legend">
+                    <div><span class="dot dot--cargo"></span> Navire AIS</div>
+                    <div><span class="dot dot--ghost"></span> Ghost boat (SAR)</div>
+                </div>
+                <div class="radar-stats">
+                    <div>Navires AIS : <span class="val" id="radarAisCount">0</span></div>
+                    <div>Ghost boats : <span class="warn" id="radarGhostCount">0</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h2 class="fr-section-title"><i class="fas fa-map-location-dot"></i> Carte interactive</h2>
+    <div class="fr-card" id="mapAnchor" style="margin-bottom:1rem;">
+        <div class="fr-card__body" style="padding:0;">
+            <div id="map" style="height:500px;width:100%;"></div>
+        </div>
+        <div class="fr-card__footer">
+            <span><i class="fas fa-info-circle"></i> Ghost boats : points orange clignotants • Navires AIS : points bleus</span>
+            <span id="mapCounts">—</span>
+        </div>
+    </div>
+
+    <h2 class="fr-section-title"><i class="fas fa-ship"></i> Contacts radar — Navires AIS</h2>
+    <div class="fr-card">
+        <div class="fr-card__header">
+            <div class="fr-card__title"><i class="fas fa-list"></i> Navires AIS</div>
+            <div class="fr-search">
+                <i class="fas fa-magnifying-glass"></i>
+                <input type="text" id="vesselSearch" placeholder="Rechercher…" oninput="filterVessels()">
+            </div>
+        </div>
+        <div class="fr-card__body" style="padding:0;">
+            <div class="fr-table-wrap">
+                <table class="fr-table">
+                    <thead>
+                        <tr>
+                            <th onclick="sortVessels(0)">Nom ↕</th>
+                            <th onclick="sortVessels(1)">MMSI ↕</th>
+                            <th onclick="sortVessels(2)">Vitesse ↕</th>
+                            <th onclick="sortVessels(3)">Cap ↕</th>
+                            <th onclick="sortVessels(4)">Distance La Réunion ↕</th>
+                        </tr>
+                    </thead>
+                    <tbody id="vesselsBody">
+                        <tr><td colspan="5" style="text-align:center;padding:1.5rem;">En attente du flux AIS…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="fr-card__footer">
+            <span id="vesselCount">—</span>
+            <span>Données AISStream</span>
+        </div>
+    </div>
+
+    <h2 class="fr-section-title"><i class="fas fa-ghost"></i> Ghost boats détectés</h2>
+    <div class="fr-card">
+        <div class="fr-card__header">
+            <div class="fr-card__title"><i class="fas fa-list"></i> Détections SAR</div>
+            <div class="fr-search">
+                <i class="fas fa-magnifying-glass"></i>
+                <input type="text" id="ghostSearch" placeholder="Rechercher…" oninput="filterGhosts()">
+            </div>
+        </div>
+        <div class="fr-card__body" style="padding:0;">
+            <div class="fr-table-wrap">
+                <table class="fr-table">
+                    <thead>
+                        <tr>
+                            <th onclick="sortGhosts(0)">#</th>
+                            <th onclick="sortGhosts(1)">Latitude ↕</th>
+                            <th onclick="sortGhosts(2)">Longitude ↕</th>
+                            <th onclick="sortGhosts(3)">Distance (km) ↕</th>
+                            <th onclick="sortGhosts(4)">Intensité ↕</th>
+                            <th onclick="sortGhosts(5)">Taille ↕</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ghostsBody">
+                        <tr><td colspan="6" style="text-align:center;padding:1.5rem;">Chargement…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="fr-card__footer">
+            <span id="ghostCount">—</span>
+            <span id="ghostScene">—</span>
+        </div>
+    </div>
+
+    <h2 class="fr-section-title" id="quakesAnchor"><i class="fas fa-fire"></i> Séismes (24 h)</h2>
+    <div class="fr-card">
+        <div class="fr-card__header">
+            <div class="fr-card__title"><i class="fas fa-globe"></i> USGS — M ≥ 2.5</div>
+        </div>
+        <div class="fr-card__body" style="padding:0;">
+            <div class="fr-table-wrap">
+                <table class="fr-table">
+                    <thead>
+                        <tr>
+                            <th>Magnitude</th>
+                            <th>Lieu</th>
+                            <th>Profondeur</th>
+                            <th>Heure</th>
+                            <th>Détails</th>
+                        </tr>
+                    </thead>
+                    <tbody id="quakesBody">
+                        <tr><td colspan="5" style="text-align:center;padding:1.5rem;">Chargement…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="fr-card__footer">
+            <span id="quakeCount">—</span>
+            <span>USGS — earthquake.usgs.gov</span>
+        </div>
+    </div>
+
+</main>
+
+<footer class="fr-footer">
+    <div class="fr-container">
+        <div class="fr-footer__brand">
+            <div class="fr-header__brand-logo" style="width:32px;height:32px;font-size:1rem;">⚓</div>
+            <div>
+                <div>Radar Maritime Réunion</div>
+                <div style="font-size:0.75rem;font-weight:400;color:var(--text-mention);">Outil tiers indépendant</div>
+            </div>
+        </div>
+        <div>Sources : Sentinel-1 (Copernicus) + USGS · © 2026 MIT</div>
+    </div>
+</footer>
+
+<div class="fr-modal" id="detailModal">
+    <div class="fr-modal__content">
+        <div class="fr-modal__header">
+            <div class="fr-modal__title" id="modalTitle">Détail</div>
+            <button class="fr-modal__close" onclick="closeModal()">×</button>
+        </div>
+        <div class="fr-modal__body" id="modalBody"></div>
+    </div>
+</div>
+
+<script>
+'use strict';
+
+const AIS_RELAY_URL = 'ws://localhost:9013/ws';
+const USGS_URL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson';
+const REDRAW_INTERVAL_MS = 2000;
+const REU_LAT = -21.12;
+const REU_LON = 55.53;
+
+const state = {
+    data: { vessels: [], quakes: [], ghosts: [], ghostsScene: null, ghostsGeneratedAt: null },
+    ghostRows: [],
+    _renderedGhosts: [],
+    ghostSortDir: {},
+    vesselRows: [],
+    vesselSortDir: {},
+    map: null,
+    vesselLayer: null,
+    quakesLayer: null,
+    ghostLayer: null,
+    radar: {
+        canvas: null, ctx: null, animationId: null,
+        sweepAngle: 0,
+        rangeNM: 250,
+        center: { lat: REU_LAT, lon: REU_LON }
+    }
+};
+
+/* ============================================================
+   WEBSOCKET
+   ============================================================ */
+const vesselsByMMSI = new Map();
+let ws = null;
+let wsReconnectTimer = null;
+let redrawTimer = null;
+
+function getOrCreateVessel(mmsi) {
+    if (!vesselsByMMSI.has(mmsi)) {
+        vesselsByMMSI.set(mmsi, {
+            mmsi: String(mmsi), name: '—',
+            lat: null, lon: null, speed: null, course: null,
+            lastUpdate: 0
+        });
+    }
+    return vesselsByMMSI.get(mmsi);
+}
+
+function processAISMessage(data) {
+    const meta = data.MetaData || {};
+    const mmsi = meta.MMSI || meta.mmsi;
+    if (!mmsi) return;
+    const vessel = getOrCreateVessel(String(mmsi));
+    if (meta.ShipName) vessel.name = meta.ShipName.trim() || '—';
+    if (meta.latitude != null) vessel.lat = meta.latitude;
+    if (meta.longitude != null) vessel.lon = meta.longitude;
+    if (data.MessageType === 'PositionReport') {
+        const pr = data.Message?.PositionReport || {};
+        if (pr.Sog != null) vessel.speed = pr.Sog;
+        if (pr.Cog != null) vessel.course = pr.Cog;
+        vessel.lastUpdate = Date.now();
+    }
+}
+
+function connectAISWebSocket() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    console.log('[ws] Connexion…');
+    ws = new WebSocket(AIS_RELAY_URL);
+
+    ws.addEventListener('open', () => console.log('[ws] ✓ Connecté'));
+    ws.addEventListener('message', (event) => {
+        let data;
+        try { data = JSON.parse(event.data); } catch (e) { return; }
+
+        if (data.type === 'ghosts') {
+            console.log(`[ghosts] ${data.count} ghosts reçus (scène ${data.scene || '?'})`);
+            state.data.ghosts = data.ghosts || [];
+            state.data.ghostsScene = data.scene || null;
+            state.data.ghostsGeneratedAt = data.generated_at || null;
+            updateKPIs();
+            updateGhostsTable();
+            updateMapMarkers();
+            return;
+        }
+        if (data.type === 'error') return;
+
+        processAISMessage(data);
+    });
+    ws.addEventListener('close', () => {
+        ws = null;
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = setTimeout(connectAISWebSocket, 5000);
+    });
+}
+
+function refreshFromBuffer() {
+    const now = Date.now();
+    const STALE = 30 * 60 * 1000;
+    const all = [];
+    for (const v of vesselsByMMSI.values()) {
+        if (v.lat == null || v.lon == null) continue;
+        if (now - v.lastUpdate > STALE) continue;
+        all.push(v);
+    }
+    state.data.vessels = all;
+    updateKPIs();
+    updateVesselsTable();
+    updateMapMarkers();
+    document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('fr-FR');
+    document.getElementById('radarAisCount').textContent = all.length;
+    document.getElementById('radarGhostCount').textContent = state.data.ghosts.length;
+    document.getElementById('radarTargetCount').textContent = all.length + state.data.ghosts.length;
+    document.getElementById('mapCounts').textContent =
+        `${all.length} navires · ${state.data.ghosts.length} ghosts · ${state.data.quakes.length} séismes`;
+}
+
+function startRedrawLoop() {
+    if (redrawTimer) clearInterval(redrawTimer);
+    redrawTimer = setInterval(refreshFromBuffer, REDRAW_INTERVAL_MS);
+}
+
+/* ============================================================
+   SÉISMES
+   ============================================================ */
+async function fetchEarthquakes() {
+    try {
+        const r = await fetch(USGS_URL);
+        const j = await r.json();
+        return (j.features || []).map(f => ({
+            id: f.id, time: new Date(f.properties.time),
+            mag: f.properties.mag, place: f.properties.place,
+            url: f.properties.url,
+            lat: f.geometry.coordinates[1],
+            lon: f.geometry.coordinates[0],
+            depth: f.geometry.coordinates[2]
+        })).sort((a, b) => b.time - a.time);
+    } catch (e) { return []; }
+}
+
+/* ============================================================
+   KPIs
+   ============================================================ */
+function updateKPIs() {
+    document.getElementById('kpiGhosts').textContent = state.data.ghosts.length;
+    document.getElementById('kpiVessels').textContent = state.data.vessels.length;
+    document.getElementById('kpiMil').textContent = '0';
+    document.getElementById('kpiQuakes').textContent = state.data.quakes.length;
+
+    // Date de la scène SAR
+    const trend = document.getElementById('kpiGhostsTrend');
+    const sceneFooter = document.getElementById('ghostScene');
+    if (state.data.ghostsScene) {
+        const m = state.data.ghostsScene.match(/(\d{4})(\d{2})(\d{2})/);
+        if (m) {
+            const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`);
+            const fmt = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+            trend.textContent = `Scène du ${fmt}`;
+            sceneFooter.textContent = `Sentinel-1 SAR — scène du ${fmt}`;
+        } else {
+            trend.textContent = 'Sentinel-1 SAR';
+            sceneFooter.textContent = 'Sentinel-1 SAR';
+        }
+    } else {
+        trend.textContent = 'En attente…';
+        sceneFooter.textContent = '—';
+    }
+}
+
+/* ============================================================
+   DISTANCE
+   ============================================================ */
+function distToReunionKm(lat, lon) {
+    if (lat == null || lon == null) return null;
+    const dLat = (lat - REU_LAT) * 111;
+    const dLon = (lon - REU_LON) * 111 * Math.cos(REU_LAT * Math.PI / 180);
+    return Math.sqrt(dLat * dLat + dLon * dLon);
+}
+
+/* ============================================================
+   RADAR
+   ============================================================ */
+function initRadar() {
+    const canvas = document.getElementById('radarCanvas');
+    if (!canvas) return;
+    state.radar.canvas = canvas;
+    state.radar.ctx = canvas.getContext('2d');
+    resizeRadar();
+    window.addEventListener('resize', resizeRadar);
+    animateRadar();
+}
+
+function resizeRadar() {
+    const container = document.getElementById('radarContainer');
+    const canvas = state.radar.canvas;
+    if (!container || !canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = container.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    state.radar.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function animateRadar() {
+    const { ctx, canvas } = state.radar;
+    if (!ctx || !canvas) return;
+    const w = canvas.width / (window.devicePixelRatio || 1);
+    const h = canvas.height / (window.devicePixelRatio || 1);
+    const cx = w / 2, cy = h / 2;
+    const maxR = Math.min(cx, cy) - 20;
+
+    ctx.clearRect(0, 0, w, h);
+
+    ctx.strokeStyle = 'rgba(0, 212, 255, 0.15)';
+    for (let i = 1; i <= 5; i++) {
+        const r = (maxR / 5) * i;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
+    state.radar.sweepAngle += 0.015;
+    if (state.radar.sweepAngle > Math.PI * 2) state.radar.sweepAngle = 0;
+    ctx.strokeStyle = 'rgba(0, 255, 136, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(state.radar.sweepAngle) * maxR, cy + Math.sin(state.radar.sweepAngle) * maxR);
+    ctx.stroke();
+
+    const rangeDeg = state.radar.rangeNM / 60;
+
+    state.data.vessels.forEach(v => {
+        if (v.lat == null || v.lon == null) return;
+        const dLat = v.lat - state.radar.center.lat;
+        const dLon = (v.lon - state.radar.center.lon) * Math.cos(state.radar.center.lat * Math.PI / 180);
+        const dist = Math.sqrt(dLat * dLat + dLon * dLon);
+        if (dist > rangeDeg) return;
+        const angle = Math.atan2(dLon, dLat);
+        const r = (dist / rangeDeg) * maxR;
+        const x = cx + Math.sin(angle) * r;
+        const y = cy - Math.cos(angle) * r;
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#00d4ff';
+        ctx.fill();
+    });
+
+    state.data.ghosts.forEach(g => {
+        if (g.lat == null || g.lon == null) return;
+        const dLat = g.lat - state.radar.center.lat;
+        const dLon = (g.lon - state.radar.center.lon) * Math.cos(state.radar.center.lat * Math.PI / 180);
+        const dist = Math.sqrt(dLat * dLat + dLon * dLon);
+        if (dist > rangeDeg) return;
+        const angle = Math.atan2(dLon, dLat);
+        const r = (dist / rangeDeg) * maxR;
+        const x = cx + Math.sin(angle) * r;
+        const y = cy - Math.cos(angle) * r;
+        const alpha = 0.5 + 0.5 * Math.sin(Date.now() / 300);
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = '#FF6600';
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#FF6600';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.stroke();
+    });
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#00ff88';
+    ctx.fill();
+
+    state.radar.animationId = requestAnimationFrame(animateRadar);
+}
+
+/* ============================================================
+   CARTE
+   ============================================================ */
+function initMap() {
+    state.map = L.map('map').setView([REU_LAT, REU_LON], 7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap', maxZoom: 18
+    }).addTo(state.map);
+
+    state.vesselLayer = L.layerGroup().addTo(state.map);
+    state.ghostLayer = L.layerGroup().addTo(state.map);
+    state.quakesLayer = L.layerGroup().addTo(state.map);
+
+    const legend = L.control({ position: 'bottomright' });
+    legend.onAdd = function() {
+        const div = L.DomUtil.create('div', 'map-legend');
+        div.innerHTML = `
+            <div class="map-legend__title">Légende</div>
+            <div class="map-legend__item"><span class="map-legend__dot map-legend__dot--vessel"></span> Navire AIS</div>
+            <div class="map-legend__item"><span class="map-legend__dot map-legend__dot--ghost"></span> Ghost boat (SAR)</div>
+            <div class="map-legend__item"><span class="map-legend__dot map-legend__dot--quake"></span> Séisme</div>
+        `;
+        return div;
+    };
+    legend.addTo(state.map);
+
+    setTimeout(() => state.map.invalidateSize(), 300);
+}
+
+function updateMapMarkers() {
+    if (!state.map) return;
+
+    if (state.vesselLayer) state.vesselLayer.clearLayers();
+    state.data.vessels.forEach(v => {
+        if (v.lat == null || v.lon == null) return;
+        L.circleMarker([v.lat, v.lon], {
+            radius: 4, color: '#00d4ff', fillColor: '#00d4ff',
+            fillOpacity: 0.8, weight: 1
+        }).bindPopup(`<strong>${escapeHtml(v.name)}</strong>`).addTo(state.vesselLayer);
+    });
+
+    if (state.ghostLayer) state.ghostLayer.clearLayers();
+    state.data.ghosts.forEach(g => {
+        if (g.lat == null || g.lon == null) return;
+        L.circleMarker([g.lat, g.lon], {
+            radius: 8, color: '#FF6600', fillColor: '#FF6600',
+            fillOpacity: 0.7, weight: 2, className: 'ghost-pulse'
+        }).bindPopup(`
+            <strong style="color:#FF6600; font-size:1rem;">👻 Détection SAR</strong><br>
+            <span style="font-size:0.85rem;">
+                <b>Latitude :</b> ${g.lat.toFixed(4)}°<br>
+                <b>Longitude :</b> ${g.lon.toFixed(4)}°<br>
+                <b>Distance :</b> ${g.dist_reunion_km.toFixed(1)} km<br>
+                <b>Intensité :</b> ${g.intensity.toFixed(0)}<br>
+                <b>Taille :</b> ${g.pixels} pixels
+            </span>
+        `).addTo(state.ghostLayer);
+    });
+
+    if (state.quakesLayer) state.quakesLayer.clearLayers();
+    state.data.quakes.forEach(q => {
+        if (q.lat == null || q.lon == null) return;
+        const radiusMeters = Math.max(10000, Math.pow(q.mag, 3) * 800);
+        let color = '#FFA500';
+        if (q.mag >= 5) color = '#8B0000';
+        else if (q.mag >= 4) color = '#E1000F';
+        L.circle([q.lat, q.lon], {
+            radius: radiusMeters, color: color, fillColor: color,
+            fillOpacity: 0.25, weight: 2
+        }).bindPopup(`M${q.mag} - ${q.place}`).addTo(state.quakesLayer);
+    });
+}
+
+/* ============================================================
+   TABLEAU NAVIRES
+   ============================================================ */
+function updateVesselsTable() {
+    state.vesselRows = state.data.vessels.map(v => ({
+        name: v.name || '—',
+        mmsi: v.mmsi || '—',
+        speed: v.speed,
+        course: v.course,
+        dist_km: distToReunionKm(v.lat, v.lon)
+    }));
+    state.vesselRows.sort((a, b) => {
+        if (a.dist_km == null) return 1;
+        if (b.dist_km == null) return -1;
+        return a.dist_km - b.dist_km;
+    });
+    renderVesselsTable(state.vesselRows);
+}
+
+function renderVesselsTable(rows) {
+    const tbody = document.getElementById('vesselsBody');
+    if (!tbody) return;
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:1.5rem;">Aucun navire AIS</td></tr>';
+        document.getElementById('vesselCount').textContent = '0 navire';
+        return;
+    }
+    tbody.innerHTML = rows.slice(0, 100).map(r => {
+        const dist = r.dist_km != null ? r.dist_km.toFixed(0) + ' km' : '—';
+        const speed = r.speed != null ? r.speed.toFixed(1) + ' kn' : '—';
+        const course = r.course != null ? r.course.toFixed(0) + '°' : '—';
+        return `
+            <tr>
+                <td><strong>${escapeHtml(r.name)}</strong></td>
+                <td><code>${escapeHtml(r.mmsi)}</code></td>
+                <td>${speed}</td>
+                <td>${course}</td>
+                <td>${dist}</td>
+            </tr>
+        `;
+    }).join('');
+    document.getElementById('vesselCount').textContent = rows.length + ' navire' + (rows.length > 1 ? 's' : '');
+}
+
+function filterVessels() {
+    const q = document.getElementById('vesselSearch').value.trim().toLowerCase();
+    if (!q) return renderVesselsTable(state.vesselRows);
+    renderVesselsTable(state.vesselRows.filter(r =>
+        (r.name + ' ' + r.mmsi).toLowerCase().includes(q)
+    ));
+}
+
+function sortVessels(col) {
+    const keys = ['name', 'mmsi', 'speed', 'course', 'dist_km'];
+    const key = keys[col];
+    state.vesselSortDir[col] = !state.vesselSortDir[col];
+    const dir = state.vesselSortDir[col] ? 1 : -1;
+    const sorted = [...state.vesselRows].sort((a, b) => {
+        const av = a[key], bv = b[key];
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+        return String(av).localeCompare(String(bv)) * dir;
+    });
+    renderVesselsTable(sorted);
+}
+
+/* ============================================================
+   TABLEAU GHOSTS
+   ============================================================ */
+function updateGhostsTable() {
+    state.ghostRows = state.data.ghosts.map((g, i) => ({ ...g, idx: i }));
+    renderGhostsTable(state.ghostRows);
+}
+
+function renderGhostsTable(rows) {
+    state._renderedGhosts = rows;
+    const tbody = document.getElementById('ghostsBody');
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:1.5rem;">Aucune détection SAR</td></tr>';
+        document.getElementById('ghostCount').textContent = '0 ghost';
+        return;
+    }
+    tbody.innerHTML = rows.map((g, i) => `
+        <tr onclick="showGhostDetail(${i})">
+            <td><strong>#${i + 1}</strong></td>
+            <td>${g.lat.toFixed(4)}°</td>
+            <td>${g.lon.toFixed(4)}°</td>
+            <td>${g.dist_reunion_km.toFixed(1)}</td>
+            <td><span class="fr-tag fr-tag--ghost">${g.intensity.toFixed(0)}</span></td>
+            <td>${g.pixels} px</td>
+        </tr>
+    `).join('');
+    document.getElementById('ghostCount').textContent = rows.length + ' ghost' + (rows.length > 1 ? 's' : '');
+}
+
+function filterGhosts() {
+    const q = document.getElementById('ghostSearch').value.trim().toLowerCase();
+    if (!q) return renderGhostsTable(state.ghostRows);
+    renderGhostsTable(state.ghostRows.filter(r =>
+        (r.lat.toString() + r.lon.toString()).includes(q)
+    ));
+}
+
+function sortGhosts(col) {
+    const keys = ['idx', 'lat', 'lon', 'dist_reunion_km', 'intensity', 'pixels'];
+    const key = keys[col];
+    state.ghostSortDir[col] = !state.ghostSortDir[col];
+    const dir = state.ghostSortDir[col] ? 1 : -1;
+    const sorted = [...state.ghostRows].sort((a, b) => (a[key] - b[key]) * dir);
+    renderGhostsTable(sorted);
+}
+
+function showGhostDetail(i) {
+    const g = state._renderedGhosts[i];
+    if (!g) return;
+    document.getElementById('modalTitle').textContent = '👻 Ghost boat #' + (i + 1);
+    document.getElementById('modalBody').innerHTML = `
+        <table class="fr-table"><tbody>
+            <tr><td><strong>Latitude</strong></td><td>${g.lat.toFixed(4)}°</td></tr>
+            <tr><td><strong>Longitude</strong></td><td>${g.lon.toFixed(4)}°</td></tr>
+            <tr><td><strong>Distance La Réunion</strong></td><td>${g.dist_reunion_km.toFixed(1)} km</td></tr>
+            <tr><td><strong>Intensité radar</strong></td><td>${g.intensity.toFixed(0)}</td></tr>
+            <tr><td><strong>Taille</strong></td><td>${g.pixels} pixels</td></tr>
+        </tbody></table>
+        <p style="margin-top:1rem;font-size:0.8rem;color:var(--text-mention);">
+            Détection SAR Sentinel-1 — vérification visuelle recommandée.
+        </p>
+    `;
+    document.getElementById('detailModal').classList.add('active');
+}
+
+/* ============================================================
+   SÉISMES TABLEAU
+   ============================================================ */
+function updateQuakesTable() {
+    const tbody = document.getElementById('quakesBody');
+    const rows = state.data.quakes.slice(0, 50);
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:1.5rem;">Aucun séisme</td></tr>';
+        document.getElementById('quakeCount').textContent = '0 séisme';
+        return;
+    }
+    tbody.innerHTML = rows.map(q => `
+        <tr>
+            <td><strong>M${q.mag.toFixed(1)}</strong></td>
+            <td>${q.place || '—'}</td>
+            <td>${q.depth != null ? q.depth.toFixed(1) + ' km' : '—'}</td>
+            <td>${q.time.toLocaleString('fr-FR')}</td>
+            <td><a href="${q.url}" target="_blank" class="fr-tag fr-tag--info">USGS ↗</a></td>
+        </tr>
+    `).join('');
+    document.getElementById('quakeCount').textContent = rows.length + ' séisme' + (rows.length > 1 ? 's' : '');
+}
+
+/* ============================================================
+   INIT
+   ============================================================ */
+document.addEventListener('DOMContentLoaded', () => {
+    initRadar();
+    initMap();
+    connectAISWebSocket();
+    startRedrawLoop();
+
+    fetchEarthquakes().then(q => {
+        state.data.quakes = q;
+        updateKPIs();
+        updateQuakesTable();
+        updateMapMarkers();
+        document.getElementById('statusDot').classList.remove('fr-badge-dot--wait');
+        document.getElementById('statusText').textContent = 'Temps réel actif';
+        document.getElementById('apiStatus').innerHTML = '<i class="fas fa-satellite-dish"></i> <strong>Actif</strong>';
+    });
+});
+
+/* ============================================================
+   UTILITAIRES
+   ============================================================ */
+function closeModal() { document.getElementById('detailModal').classList.remove('active'); }
+document.getElementById('detailModal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+function showAbout() {
+    document.getElementById('modalTitle').textContent = 'À propos';
+    document.getElementById('modalBody').innerHTML = `
+        <p><strong>Radar Maritime Réunion</strong> — outil tiers indépendant.</p>
+        <p>Sources : Sentinel-1 SAR (Copernicus), USGS, AISStream.</p>
+        <p style="margin-top:1rem;font-size:0.8rem;color:var(--text-mention);">
+            Les ghost boats sont des signatures radar détectées par algorithme CFAR,
+            sans correspondance AIS vérifiée.
+        </p>
+    `;
+    document.getElementById('detailModal').classList.add('active');
+}
+
+function exportCSV() {
+    const ghosts = state.data.ghosts;
+    const headers = ['#', 'Latitude', 'Longitude', 'Distance (km)', 'Intensité', 'Pixels'];
+    const rows = ghosts.map((g, i) => [
+        i + 1, g.lat.toFixed(4), g.lon.toFixed(4),
+        g.dist_reunion_km.toFixed(1), g.intensity.toFixed(0), g.pixels
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ghost_boats_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function exportPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text('Ghost Boats - La Réunion', 14, 20);
+    doc.setFontSize(10);
+    doc.text('Détections SAR Sentinel-1', 14, 30);
+    let y = 45;
+    doc.setFontSize(9);
+    state.data.ghosts.slice(0, 30).forEach((g, i) => {
+        if (y > 270) { doc.addPage(); y = 20; }
+        doc.text(`#${i+1}  lat=${g.lat.toFixed(4)}  lon=${g.lon.toFixed(4)}  dist=${g.dist_reunion_km.toFixed(1)}km  int=${g.intensity.toFixed(0)}`, 14, y);
+        y += 6;
+    });
+    doc.save(`ghost_boats_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+window.addEventListener('beforeunload', () => {
+    if (state.radar.animationId) cancelAnimationFrame(state.radar.animationId);
+    if (redrawTimer) clearInterval(redrawTimer);
+    if (ws) try { ws.close(); } catch (e) {}
+});
+</script>
+</body>
+</html>

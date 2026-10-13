@@ -1,0 +1,13 @@
+.env
+node_modules/
+*.log
+.DS_Store
+ais-relay/node_modules/
+ais-relay/.wrangler/
+ais-relay/secret.txt
+.wrangler/
+sar_data/
+*.zip
+*.SAFE/
+ghost_boats.json
+ais_vessels.json
