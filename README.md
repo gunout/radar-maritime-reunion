@@ -223,59 +223,18 @@ Le radar peut fonctionner **entièrement automatiquement** grâce à un cron job
 ### 📋 Vue d'ensemble
 
 | Fréquence | Tâche | Fichier de log |
-|---|---|---|
+|-----------|-------|----------------|
 | **Toutes les 30 min** | Vérifier nouvelle scène + pipeline SAR | `logs/cron.log` |
-| **Tous les jours à 3h UTC** | Nettoyer les scènes > 30 jours | `logs/cleanup.log` |
+| **Tous les jours à 3h** | Nettoyer les scènes > 30 jours | `logs/cleanup.log` |
 | **Toutes les heures** | Vérifier que le serveur Node tourne | `logs/server.log` |
 
 ### 🔧 Étape 1 — Créer `auto_update.py`
 
 Ce script vérifie s'il y a une **nouvelle** scène Sentinel-1 disponible sur le CDSE, et si oui, la télécharge et lance le pipeline CFAR.
 
-**Créer le fichier** :
+Le fichier est déjà présent dans le repo : [`auto_update.py`](./auto_update.py).
 
-```bash
-nano auto_update.py
-```
-
-**Contenu** (résumé — voir le fichier complet dans le repo) :
-
-```python
-#!/usr/bin/env python3
-"""
-Auto-update du radar maritime Réunion.
-Vérifie les nouvelles scènes Sentinel-1 et lance le pipeline automatiquement.
-"""
-
-import os
-import sys
-import subprocess
-from pathlib import Path
-from datetime import datetime, timezone, timedelta
-import requests
-from dotenv import load_dotenv
-
-load_dotenv()
-
-NAVY_DIR = Path(__file__).parent
-STATE_FILE = NAVY_DIR / 'last_scene.txt'
-PENDING_FILE = NAVY_DIR / 'pending_scene.txt'
-
-# ... (voir le fichier complet)
-
-def main():
-    # 1. Auth CDSE
-    # 2. Chercher la scène la plus récente
-    # 3. Comparer avec last_scene.txt
-    # 4. Si nouvelle → télécharger + pipeline
-    # 5. Mettre à jour last_scene.txt
-    pass
-
-if __name__ == '__main__':
-    main()
-```
-
-### 🔧 Étape 2 — Créer le dossier logs
+### 🔧 Étape 2 — Créer le dossier `logs`
 
 ```bash
 mkdir -p logs
@@ -287,30 +246,39 @@ mkdir -p logs
 crontab -e
 ```
 
-**Ajouter ces lignes** à la fin du fichier :
+**Ajoutez ces lignes** à la fin du fichier (adaptez `/home/gleaphe/Desktop/NAVY` à votre chemin) :
 
 ```cron
+# ============================================================
+# Environnement cron
+# ============================================================
+PATH=/usr/local/bin:/usr/bin:/bin
+SHELL=/bin/bash
+MAILTO=""
+
 # ============================================================
 # RADAR MARITIME RÉUNION — Tâches automatiques
 # ============================================================
 
 # Toutes les 30 minutes : vérifier nouvelle scène Sentinel-1 + pipeline SAR
-*/30 * * * * cd /home/TON_USER/radar-maritime-reunion && /usr/bin/python3 auto_update.py >> logs/cron.log 2>&1
+*/30 * * * * cd /home/gleaphe/Desktop/NAVY && mkdir -p logs && /usr/bin/python3 auto_update.py >> logs/cron.log 2>&1
 
-# Tous les jours à 3h UTC : nettoyer les vieilles scènes SAR (> 30 jours)
-0 3 * * * cd /home/TON_USER/radar-maritime-reunion && find sar_data/ -name "*.SAFE" -mtime +30 -exec rm -rf {} \; >> logs/cleanup.log 2>&1
+# Tous les jours à 3h : nettoyer les vieilles scènes SAR (> 30 jours)
+0 3 * * * cd /home/gleaphe/Desktop/NAVY && mkdir -p logs && find sar_data/ -name "*.SAFE" -mtime +30 -exec rm -rf {} \; >> logs/cleanup.log 2>&1
 
 # Toutes les heures : vérifier que le serveur Node tourne, sinon le relancer
-0 * * * * pgrep -f "node server.js" > /dev/null || (cd /home/TON_USER/radar-maritime-reunion && nohup node server.js >> logs/server.log 2>&1 &)
+0 * * * * pgrep -f "node server.js" > /dev/null || (cd /home/gleaphe/Desktop/NAVY && mkdir -p logs && nohup node server.js >> logs/server.log 2>&1 &)
 ```
 
-> ⚠️ **Remplace `/home/TON_USER/radar-maritime-reunion` par le chemin absolu de ton projet.**
+> ⚠️ **Remplacez `/home/gleaphe/Desktop/NAVY` par le chemin absolu de votre projet.**
 >
-> Pour connaître ton chemin exact :
+> Pour connaître votre chemin exact :
+>
 > ```bash
 > pwd
 > ```
-> Si tu as cloné le repo dans ton home, ça sera `/home/ton_user/radar-maritime-reunion`.
+>
+> Si vous avez cloné le repo dans votre home, ça sera `/home/votre_user/radar-maritime-reunion`.
 
 **Sauvegarder et quitter** (nano : `Ctrl+O`, `Entrée`, `Ctrl+X`).
 
@@ -322,7 +290,7 @@ crontab -e
 crontab -l | grep radar
 ```
 
-Tu dois voir les 3 lignes.
+Vous devez voir les 3 lignes.
 
 **Vérifier que les chemins sont corrects** :
 
@@ -331,7 +299,7 @@ which python3
 which node
 ```
 
-Adapte les chemins dans le crontab si nécessaire (par exemple `/usr/local/bin/python3` au lieu de `/usr/bin/python3`).
+Adaptez les chemins dans le crontab si nécessaire (par exemple `/usr/local/bin/python3` au lieu de `/usr/bin/python3`).
 
 ### 🔧 Étape 5 — Test manuel AVANT de laisser tourner
 
@@ -343,6 +311,7 @@ python3 auto_update.py
 ```
 
 **Cas 1 — Scène déjà traitée** :
+
 ```
 [2026-10-13 11:30:00] 🔍 Vérification nouvelle scène Sentinel-1...
 [2026-10-13 11:30:00]    Dernière scène traitée : S1D_IW_GRDH_1SDV_20261008T...
@@ -353,6 +322,7 @@ python3 auto_update.py
 → **Le cron peut tourner sans risque.**
 
 **Cas 2 — Nouvelle scène détectée** :
+
 ```
 [2026-10-13 11:30:00] 🆕 NOUVELLE SCÈNE — Lancement du pipeline...
 [2026-10-13 11:30:01]    → Téléchargement de la scène...
@@ -385,9 +355,15 @@ cat logs/cron.log
 grep -i error logs/cron.log
 ```
 
+**Preuve côté syslog que cron a lancé la tâche** :
+
+```bash
+grep "auto_update" /var/log/syslog | tail -5
+```
+
 ### 🔍 Étape 7 — Vérifier que le cron tourne
 
-**Attends 30 minutes** (jusqu'à la prochaine demi-heure pile), puis :
+**Attendez 30 minutes** (jusqu'à la prochaine demi-heure pile), puis :
 
 ```bash
 ls -lh logs/cron.log
@@ -402,7 +378,7 @@ Si le fichier contient des logs récents, **le cron fonctionne**.
 
 ```bash
 crontab -e
-# Ajoute # au début de chaque ligne radar
+# Ajoutez # au début de chaque ligne radar
 ```
 
 **Ou tout supprimer** :
@@ -415,37 +391,43 @@ crontab -r
 
 **1. Chemins absolus obligatoires**
 
-Le cron n'utilise **pas** ton `~/.bashrc`, donc :
+Le cron n'utilise **pas** votre `~/.bashrc`, donc :
+
 - Chemins absolus partout (`/usr/bin/python3`, pas `python3`)
 - `cd` avant chaque commande
 - Variables d'environnement chargées via `dotenv` (pas via le shell)
 
-**2. Fréquence et ressources**
+**2. Le dossier `logs/` doit exister**
+
+Sans le dossier `logs/`, la redirection `>> logs/cron.log` échoue **avant même** de lancer Python. C'est pourquoi le crontab ci-dessus inclut `mkdir -p logs &&` à chaque ligne — comme ça, même si `logs/` est supprimé, cron le recrée automatiquement.
+
+**3. Fréquence et ressources**
 
 Le pipeline SAR utilise **2-3 minutes de CPU** par exécution. Toutes les 30 minutes = charge continue.
 
-**Recommandation** : si ta machine est lente, réduis à toutes les 6 heures :
-```cron
-0 */6 * * * cd ... && python3 auto_update.py >> logs/cron.log 2>&1
-```
-
-Sentinel-1 ne passe que tous les 6 jours, donc toutes les 6 heures est suffisant.
-
-**3. Éviter les exécutions en double**
-
-Si le pipeline tourne plus longtemps que l'intervalle, deux instances peuvent se lancer en parallèle. Utilise `flock` :
+**Recommandation** : si votre machine est lente, réduisez à toutes les 6 heures :
 
 ```cron
-*/30 * * * * flock -n /tmp/radar.lock -c 'cd /home/TON_USER/radar-maritime-reunion && python3 auto_update.py >> logs/cron.log 2>&1'
+0 */6 * * * cd /home/gleaphe/Desktop/NAVY && mkdir -p logs && /usr/bin/python3 auto_update.py >> logs/cron.log 2>&1
 ```
 
-**4. Logs obligatoires**
+Sentinel-1 ne passe que tous les 6 jours, donc toutes les 6 heures est largement suffisant.
 
-Sans `>> logs/cron.log 2>&1`, tu ne verras **aucune erreur**. Toujours rediriger.
+**4. Éviter les exécutions en double**
 
-**5. Test avant de laisser tourner**
+Si le pipeline tourne plus longtemps que l'intervalle, deux instances peuvent se lancer en parallèle. Utilisez `flock` :
 
-**Teste toujours `python3 auto_update.py` manuellement** avant de compter sur le cron.
+```cron
+*/30 * * * * flock -n /tmp/radar.lock -c 'cd /home/gleaphe/Desktop/NAVY && mkdir -p logs && /usr/bin/python3 auto_update.py >> logs/cron.log 2>&1'
+```
+
+**5. Logs obligatoires**
+
+Sans `>> logs/cron.log 2>&1`, vous ne verrez **aucune erreur**. Toujours rediriger.
+
+**6. Test avant de laisser tourner**
+
+**Testez toujours `python3 auto_update.py` manuellement** avant de compter sur le cron.
 
 ### 📋 Récapitulatif du flux automatique
 
@@ -470,7 +452,7 @@ Navigateur (WebSocket)
 Affiche les nouvelles détections
 ```
 
-**Tu n'as plus rien à faire.** Le radar se met à jour tout seul à chaque nouvelle scène Sentinel-1.
+**Vous n'avez plus rien à faire.** Le radar se met à jour tout seul à chaque nouvelle scène Sentinel-1.
 
 ---
 
